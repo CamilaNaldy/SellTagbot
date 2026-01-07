@@ -1,0 +1,66 @@
+import io
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from PIL import Image
+
+# Substitua pelo Token que o BotFather te deu
+TOKEN = "SEU_TOKEN_AQUI"
+
+async def processar_layout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Pega a legenda e verifica se há foto
+    legenda = update.message.caption or ""
+    foto = update.message.photo
+
+    # Regra de Ouro: Só aceita "TEMA" + Foto
+    if legenda.strip().upper() == "TEMA" and foto:
+        await update.message.reply_text("Processando imagem técnica (150 DPI)...")
+
+        # 1. Baixar a foto (pega a maior resolução disponível)
+        arquivo_foto = await foto[-1].get_file()
+        foto_bytes = await arquivo_foto.download_as_bytearray()
+        img_usuario = Image.open(io.BytesIO(foto_bytes))
+
+        # 2. Configurações A4 em 150 DPI
+        # 1 polegada = 2.54cm. A4 = 21cm x 29.7cm
+        # (21 / 2.54) * 150 = ~1240px | (29.7 / 2.54) * 150 = ~1754px
+        LARGURA_A4 = 1240
+        ALTURA_A4 = 1754
+        MARGEM_PX = 30  # ~5mm em 150 DPI
+        ALTURA_MAX_CABECALHO = 472 # ~8cm em 150 DPI
+
+        # 3. Criar Folha Branca
+        folha = Image.new('RGB', (LARGURA_A4, ALTURA_A4), (255, 255, 255))
+
+        # 4. Redimensionar imagem do usuário para caber no cabeçalho
+        largura_util = LARGURA_A4 - (2 * MARGEM_PX)
+        altura_util = ALTURA_MAX_CABECALHO - (2 * MARGEM_PX)
+        
+        img_usuario.thumbnail((largura_util, altura_util), Image.Resampling.LANCZOS)
+
+        # 5. Colar centralizado nos 8cm superiores
+        pos_x = (LARGURA_A4 - img_usuario.width) // 2
+        pos_y = (ALTURA_MAX_CABECALHO - img_usuario.height) // 2
+        folha.paste(img_usuario, (pos_x, pos_y))
+
+        # 6. Salvar e Enviar
+        output = io.BytesIO()
+        folha.save(output, format="JPEG", quality=90)
+        output.seek(0)
+        
+        await update.message.reply_document(
+            document=output, 
+            filename="layout_final_150dpi.jpg",
+            caption="Aqui está sua folha A4 pronta para impressão."
+        )
+    else:
+        # Mensagem de erro obrigatória
+        await update.message.reply_text(
+            "Comando inválido, adicione uma imagem de referência e utilize a palavra TEMA para gerar uma imagem."
+        )
+
+# Iniciar o Bot
+if __name__ == '__main__':
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(MessageHandler(filters.ALL, processar_layout))
+    print("Bot rodando...")
+    application.run_polling()
