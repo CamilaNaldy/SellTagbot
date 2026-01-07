@@ -3,65 +3,53 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from PIL import Image
 
-# Substitua pelo Token que o BotFather te deu
 TOKEN = "8250598286:AAEFQVWC205YdEALmAzEITO6kKxwZQDlfx8"
-
 async def processar_layout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Pega a legenda e verifica se há foto
     legenda = update.message.caption or ""
     foto = update.message.photo
 
-    # Regra de Ouro: Só aceita "TEMA" + Foto
     if legenda.strip().upper() == "TEMA" and foto:
-        await update.message.reply_text("Processando imagem técnica (150 DPI)...")
+        await update.message.reply_text("Gerando layout sem bordas (Rente ao topo)...")
 
-        # 1. Baixar a foto (pega a maior resolução disponível)
+        # 1. Baixar a foto enviada
         arquivo_foto = await foto[-1].get_file()
         foto_bytes = await arquivo_foto.download_as_bytearray()
         img_usuario = Image.open(io.BytesIO(foto_bytes))
 
         # 2. Configurações A4 em 150 DPI
-        # 1 polegada = 2.54cm. A4 = 21cm x 29.7cm
-        # (21 / 2.54) * 150 = ~1240px | (29.7 / 2.54) * 150 = ~1754px
         LARGURA_A4 = 1240
         ALTURA_A4 = 1754
-        MARGEM_PX = 30  # ~5mm em 150 DPI
-        ALTURA_MAX_CABECALHO = 472 # ~8cm em 150 DPI
+        ALTURA_RETANGULO = 472 # Exatos 8cm em 150 DPI
 
-        # 3. Criar Folha Branca
+        # 3. Criar Folha Branca (O fundo garante o restante vazio)
         folha = Image.new('RGB', (LARGURA_A4, ALTURA_A4), (255, 255, 255))
 
-        # 4. Redimensionar imagem do usuário para caber no cabeçalho
-        largura_util = LARGURA_A4 - (2 * MARGEM_PX)
-        altura_util = ALTURA_MAX_CABECALHO - (2 * MARGEM_PX)
+        # 4. Ajustar imagem do usuário para preencher EXATAMENTE o retângulo de 8cm
+        # Usamos o 'fit' para que ela cubra toda a largura e altura de 8cm
+        # sem deixar espaços brancos nas laterais do retângulo.
+        img_ajustada = Image.getoutput = Image.new('RGB', (LARGURA_A4, ALTURA_RETANGULO))
         
-        img_usuario.thumbnail((largura_util, altura_util), Image.Resampling.LANCZOS)
+        # Redimensiona a imagem para cobrir a área de 8cm x largura total
+        from PIL import ImageOps
+        img_final_cabecalho = ImageOps.fit(img_usuario, (LARGURA_A4, ALTURA_RETANGULO), Image.Resampling.LANCZOS)
 
-        # 5. Colar centralizado nos 8cm superiores
-        pos_x = (LARGURA_A4 - img_usuario.width) // 2
-        pos_y = (ALTURA_MAX_CABECALHO - img_usuario.height) // 2
-        folha.paste(img_usuario, (pos_x, pos_y))
+        # 5. Colar na posição (0,0) - Rente ao topo e às laterais
+        folha.paste(img_final_cabecalho, (0, 0))
 
         # 6. Salvar e Enviar
         output = io.BytesIO()
-        folha.save(output, format="JPEG", quality=90)
+        folha.save(output, format="JPEG", quality=95)
         output.seek(0)
         
         await update.message.reply_document(
             document=output, 
-            filename="layout_final_150dpi.jpg",
-            caption="Aqui está sua folha A4 pronta para impressão."
+            filename="layout_sem_bordas.jpg",
+            caption="Aqui está o layout A4. Cabeçalho de 8cm rente às bordas."
         )
     else:
-        # Mensagem de erro obrigatória
-        await update.message.reply_text(
-            "Comando inválido, adicione uma imagem de referência e utilize a palavra TEMA para gerar uma imagem."
-        )
+        await update.message.reply_text("Comando inválido. Envie a foto com a legenda TEMA.")
 
-# Iniciar o Bot
 if __name__ == '__main__':
     application = Application.builder().token(TOKEN).build()
     application.add_handler(MessageHandler(filters.ALL, processar_layout))
-    print("Bot rodando...")
-
     application.run_polling()
